@@ -1,66 +1,116 @@
 #include <Arduino.h>
 #include <WiFiNINA.h>
 #include <secrets.h>
+#include <SPI.h>
 
 char ssid[] = AP_SSID;
 char password[] = AP_PASSWORD;
 int status = WL_IDLE_STATUS;
+int led = LED_BUILTIN;
 
-void printData()
+WiFiServer server(80);
+
+void printStatus()
 {
-  Serial.println("Board Information:");
-  // print your board's IP address:
-  IPAddress ip = WiFi.localIP();
-  Serial.print("IP Address: ");
-  Serial.println(ip);
+  // print the SSID of the network you're attached to:
 
-  Serial.println();
-  Serial.println("Network Information:");
   Serial.print("SSID: ");
+
   Serial.println(WiFi.SSID());
 
-  // print the received signal strength:
-  long rssi = WiFi.RSSI();
-  Serial.print("signal strength (RSSI):");
-  Serial.println(rssi);
+  // print your WiFi shield's IP address:
 
-  byte encryption = WiFi.encryptionType();
-  Serial.print("Encryption Type:");
-  Serial.println(encryption, HEX);
-  Serial.println();
+  IPAddress ip = WiFi.localIP();
+
+  Serial.print("IP Address: ");
+
+  Serial.println(ip);
+
+  // print where to go in a browser:
+
+  Serial.print("To see this page in action, open a browser to http://");
+
+  Serial.println(ip);
 }
 
 void setup()
 {
   //Initialize serial and wait for port to open:
   Serial.begin(9600);
-  while (!Serial)
-    ;
+  while (!Serial);
 
-  // attempt to connect to Wifi network:
-  while (status != WL_CONNECTED)
+  pinMode(led, OUTPUT);
+
+  status = WiFi.beginAP(ssid, password);
+
+  if (status != WL_AP_LISTENING)
   {
-    Serial.print("Attempting to connect to network: ");
-    Serial.println(ssid);
-    // Connect to WPA/WPA2 network:
-    status = WiFi.begin(ssid, password);
-
-    // wait 10 seconds for connection:
-    delay(10000);
+    Serial.println("Creating access point failed");
+    while (true);
   }
 
-  // you're connected now, so print out the data:
-  Serial.println("You're connected to the network");
-
-  Serial.println("----------------------------------------");
-  printData();
-  Serial.println("----------------------------------------");
+  delay(10000);
+  
+  server.begin();
+  printStatus();
 }
 
 void loop()
 {
-  // check the network connection once every 10 seconds:
-  delay(10000);
-  printData();
-  Serial.println("----------------------------------------");
+  if (status != WiFi.status())
+  {
+    status = WiFi.status();
+    if (status == WL_AP_CONNECTED) {
+      Serial.println("Device connected to AP");
+    } else {
+      Serial.println("Device disconnected from AP");
+    }
+  }
+  
+  WiFiClient client = server.available();
+
+  if (client)
+  {
+    String currentLine = "";
+    while (client.connected())
+    {
+      if (client.available())
+      {
+        char c = client.read();
+        Serial.println(c);
+
+        if (c == '\n')
+        {
+          if (currentLine.length() == 0)
+          {
+            client.println("HTTP/1.1 200 OK");
+            client.println("Content-type:text/html");
+            client.println();
+            client.print("Click <a href=\"/H\">here</a> turn the LED on<br>");
+            client.print("Click <a href=\"/L\">here</a> turn the LED off<br>");
+            client.println();
+            break;
+          }
+          else {
+            currentLine = "";
+          }
+        }
+        else if (c != '\r') {
+          currentLine += c;
+        }
+
+        if (currentLine.endsWith("GET /H"))
+        {
+          digitalWrite(led, HIGH);
+        }
+        else if (currentLine.endsWith("GET /L")){
+          digitalWrite(led, LOW);
+        }
+      }
+    }
+
+    client.stop();
+    Serial.println("client disconnected");
+  }
+  
 }
