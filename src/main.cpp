@@ -7,34 +7,28 @@
 #include <Adafruit_Sensor.h>
 #include <DHT.h>
 
-
-char ap_ssid[] = AP_SSID;
-char ap_password[] = AP_PASSWORD;
-
-char hivemq_username[] = HIVEMQ_USERNAME;
-char hivemq_password[] = HIVEMQ_PASSWORD;
-
-int wifi_status = WL_IDLE_STATUS;
-int mqtt_status = MQTT_CONNECTION_TIMEOUT;
-int led = LED_BUILTIN;
-
 #define SERVO_PIN 7
 #define DHT_PIN 1
 
+char ap_ssid[] = AP_SSID;
+char ap_password[] = AP_PASSWORD;
+int wifiStatus = WL_IDLE_STATUS;
+WiFiSSLClient wifiClient;
+
+char brokerHost[] = "6d50cc68ea9d4e079719910a30d98aee.s1.eu.hivemq.cloud";
+int brokerPort = 8883;
+char mqtt_broker_username[] = HIVEMQ_USERNAME;
+char mqtt_broker_password[] = HIVEMQ_PASSWORD;
+int mqttStatus = MQTT_CONNECTION_TIMEOUT;
+char topic[] = "action/+";
+MqttClient mqttClient(wifiClient);
+
+int led = LED_BUILTIN;
 Servo servo;
 DHT dht(DHT_PIN, DHT11);
 
-char broker[] = "6d50cc68ea9d4e079719910a30d98aee.s1.eu.hivemq.cloud";
-int brokerPort = 8883;
-
-char topic[] = "action/+";
-
 unsigned long previousMillis = 0;
 unsigned int interval = 1000;
-int count = 0;
-
-WiFiSSLClient wifiClient;
-MqttClient mqttClient(wifiClient);
 
 void printStatus()
 {
@@ -50,71 +44,12 @@ void printStatus()
   Serial.println(ip);
 }
 
-void setup()
+void onActionMessage(int messageSize)
 {
-  //Initialize serial and wait for port to open:
-  Serial.begin(9600);
-  while (!Serial);
-
-  pinMode(led, OUTPUT);
-  
-  servo.attach(SERVO_PIN);
-
-  while (wifi_status != WL_CONNECTED){
-    wifi_status = WiFi.begin(ap_ssid, ap_password);
-    if (wifi_status != WL_CONNECTED)
-    {
-      Serial.println("Wifi connection failed!");
-      delay(3000);
-      continue;
-    }
-
-    Serial.println("You're connected to the Wifi!");
+  if (messageSize == 0){
+    return;
   }
 
-  printStatus();
-  
-  mqttClient.setUsernamePassword(hivemq_username, hivemq_password);
-  while (mqtt_status != MQTT_SUCCESS) {
-    if (!mqttClient.connect(broker, brokerPort))
-    {
-      mqtt_status = mqttClient.connectError();
-      Serial.print("MQTT connection failed! Error code = ");
-      Serial.println(mqtt_status);
-      delay(3000);
-      continue;
-    }
-    
-    mqtt_status = MQTT_SUCCESS;
-    Serial.println("You're connected to the MQTT broker!");
-  };
-
-  mqttClient.subscribe(topic);
-}
-
-void publish()
-{
-  if (!isnan(dht.readHumidity()))
-  {
-    Serial.print("Humidity: ");
-    Serial.println(dht.readHumidity());
-    mqttClient.beginMessage("dht/humidity");
-    mqttClient.print(dht.readHumidity());
-    mqttClient.endMessage();
-  }
-
-  if (!isnan(dht.readTemperature()))
-  {
-    Serial.print("Temperature: ");
-    Serial.println(dht.readTemperature());
-    mqttClient.beginMessage("dht/temperature");
-    mqttClient.print(dht.readTemperature());
-    mqttClient.endMessage();
-  }
-}
-
-void readFromSubscription()
-{
   String responseTopic = mqttClient.messageTopic();
   Serial.println(responseTopic);
   
@@ -141,16 +76,77 @@ void readFromSubscription()
   }
 }
 
+void setup()
+{
+  //Initialize serial and wait for port to open:
+  Serial.begin(9600);
+  while (!Serial);
+
+  pinMode(led, OUTPUT);
+  
+  servo.attach(SERVO_PIN);
+
+  while (wifiStatus != WL_CONNECTED){
+    wifiStatus = WiFi.begin(ap_ssid, ap_password);
+    if (wifiStatus != WL_CONNECTED)
+    {
+      Serial.println("Wifi connection failed!");
+      delay(3000);
+      continue;
+    }
+
+    Serial.println("You're connected to the Wifi!");
+  }
+
+  printStatus();
+  
+  mqttClient.setUsernamePassword(mqtt_broker_username, mqtt_broker_password);
+  while (mqttStatus != MQTT_SUCCESS) {
+    if (!mqttClient.connect(brokerHost, brokerPort))
+    {
+      mqttStatus = mqttClient.connectError();
+      Serial.print("MQTT connection failed! Error code = ");
+      Serial.println(mqttStatus);
+      delay(3000);
+      continue;
+    }
+    
+    mqttStatus = MQTT_SUCCESS;
+    Serial.println("You're connected to the MQTT broker!");
+  };
+
+  mqttClient.onMessage(onActionMessage);
+  mqttClient.subscribe(topic);
+}
+
+void publish()
+{
+  if (!isnan(dht.readHumidity()))
+  {
+    Serial.print("Humidity: ");
+    Serial.println(dht.readHumidity());
+    mqttClient.beginMessage("dht/humidity");
+    mqttClient.print(dht.readHumidity());
+    mqttClient.endMessage();
+  }
+
+  if (!isnan(dht.readTemperature()))
+  {
+    Serial.print("Temperature: ");
+    Serial.println(dht.readTemperature());
+    mqttClient.beginMessage("dht/temperature");
+    mqttClient.print(dht.readTemperature());
+    mqttClient.endMessage();
+  }
+}
+
 void loop()
 {
+  mqttClient.poll();
   unsigned long currentMillis = millis();
   if (currentMillis - previousMillis >= interval)
   {
     previousMillis = currentMillis;
     publish();
-  }
-
-  if (mqttClient.parseMessage()){
-    readFromSubscription();
   }
 }
