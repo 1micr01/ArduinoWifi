@@ -4,23 +4,27 @@
 #include <SPI.h>
 #include <ArduinoMqttClient.h>
 #include <Servo.h>
+#include <Adafruit_Sensor.h>
+#include <DHT.h>
 
 
 char ap_ssid[] = AP_SSID;
 char ap_password[] = AP_PASSWORD;
 
-char shiftr_username[] = SHIFTR_USERNAME;
-char shiftr_password[] = SHIFTER_PASSWORD;
+char hivemq_username[] = HIVEMQ_USERNAME;
+char hivemq_password[] = HIVEMQ_PASSWORD;
 
 int wifi_status = WL_IDLE_STATUS;
 int mqtt_status = MQTT_CONNECTION_TIMEOUT;
 int led = LED_BUILTIN;
 
 #define SERVO_PIN 7
+#define DHT_PIN 1
 
 Servo servo;
+DHT dht(DHT_PIN, DHT11);
 
-char broker[] = "flintstinger385.cloud.shiftr.io";
+char broker[] = "6d50cc68ea9d4e079719910a30d98aee.s1.eu.hivemq.cloud";
 int brokerPort = 8883;
 
 char topic[] = "action/+";
@@ -38,7 +42,6 @@ void printStatus()
 
   Serial.print("SSID: ");
   Serial.println(WiFi.SSID());
-
   // print your WiFi shield's IP address:
 
   IPAddress ip = WiFi.localIP();
@@ -71,7 +74,7 @@ void setup()
 
   printStatus();
   
-  mqttClient.setUsernamePassword(shiftr_username, shiftr_password);
+  mqttClient.setUsernamePassword(hivemq_username, hivemq_password);
   while (mqtt_status != MQTT_SUCCESS) {
     if (!mqttClient.connect(broker, brokerPort))
     {
@@ -89,32 +92,65 @@ void setup()
   mqttClient.subscribe(topic);
 }
 
-void loop()
+void publish()
 {
-  if (mqttClient.parseMessage()){
-    String responseTopic = mqttClient.messageTopic();
-    Serial.println(responseTopic);
-    
-    while (mqttClient.available())
+  if (!isnan(dht.readHumidity()))
+  {
+    Serial.print("Humidity: ");
+    Serial.println(dht.readHumidity());
+    mqttClient.beginMessage("dht/humidity");
+    mqttClient.print(dht.readHumidity());
+    mqttClient.endMessage();
+  }
+
+  if (!isnan(dht.readTemperature()))
+  {
+    Serial.print("Temperature: ");
+    Serial.println(dht.readTemperature());
+    mqttClient.beginMessage("dht/temperature");
+    mqttClient.print(dht.readTemperature());
+    mqttClient.endMessage();
+  }
+}
+
+void readFromSubscription()
+{
+  String responseTopic = mqttClient.messageTopic();
+  Serial.println(responseTopic);
+  
+  while (mqttClient.available())
+  {
+    String response = mqttClient.readString();
+    Serial.println(response);
+    String action = responseTopic.substring(responseTopic.indexOf("/") + 1);
+    if (action == "led")
     {
-      String response = mqttClient.readString();
-      Serial.println(response);
-      String action = responseTopic.substring(responseTopic.indexOf("/") + 1);
-      if (action == "led")
+      if (response == "on")
       {
-        if (response == "on")
-        {
-          digitalWrite(led, HIGH);
-        }
-        else if (response == "off")
-        {
-          digitalWrite(led, LOW);
-        }
+        digitalWrite(led, HIGH);
       }
-      else if (action == "servo")
+      else if (response == "off")
       {
-        servo.write(response.toInt());
+        digitalWrite(led, LOW);
       }
     }
+    else if (action == "servo")
+    {
+      servo.write(response.toInt());
+    }
+  }
+}
+
+void loop()
+{
+  unsigned long currentMillis = millis();
+  if (currentMillis - previousMillis >= interval)
+  {
+    previousMillis = currentMillis;
+    publish();
+  }
+
+  if (mqttClient.parseMessage()){
+    readFromSubscription();
   }
 }
