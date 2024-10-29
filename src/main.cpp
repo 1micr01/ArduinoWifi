@@ -8,7 +8,7 @@ char password[] = AP_PASSWORD;
 int status = WL_IDLE_STATUS;
 int led = LED_BUILTIN;
 
-WiFiServer server(80);
+WiFiSSLClient client;
 
 void printStatus()
 {
@@ -41,76 +41,45 @@ void setup()
 
   pinMode(led, OUTPUT);
 
-  status = WiFi.beginAP(ssid, password);
+  while (status != WL_CONNECTED){
+    status = WiFi.begin(ssid, password);
 
-  if (status != WL_AP_LISTENING)
-  {
-    Serial.println("Creating access point failed");
-    while (true);
+    delay(10000);
   }
 
-  delay(10000);
-  
-  server.begin();
   printStatus();
+  
+  if (client.connect("demosamples.azurewebsites.net", 443))
+  {
+    Serial.println("connected to server");
+
+    client.println("GET /StaticHTMLTest/Default.html HTTP/1.1");
+
+    client.println("Host: demosamples.azurewebsites.net");
+
+    client.println("Connection: close");
+
+    client.println();
+  }
 }
 
 void loop()
 {
-  if (status != WiFi.status())
+  while (client.available())
   {
-    status = WiFi.status();
-    if (status == WL_AP_CONNECTED) {
-      Serial.println("Device connected to AP");
-    } else {
-      Serial.println("Device disconnected from AP");
-    }
+    char c = client.read();
+    Serial.print(c);
   }
   
-  WiFiClient client = server.available();
-
-  if (client)
+  if (!client.connected())
   {
-    String currentLine = "";
-    while (client.connected())
-    {
-      if (client.available())
-      {
-        char c = client.read();
-        Serial.println(c);
+    Serial.println();
 
-        if (c == '\n')
-        {
-          if (currentLine.length() == 0)
-          {
-            client.println("HTTP/1.1 200 OK");
-            client.println("Content-type:text/html");
-            client.println();
-            client.print("Click <a href=\"/H\">here</a> turn the LED on<br>");
-            client.print("Click <a href=\"/L\">here</a> turn the LED off<br>");
-            client.println();
-            break;
-          }
-          else {
-            currentLine = "";
-          }
-        }
-        else if (c != '\r') {
-          currentLine += c;
-        }
-
-        if (currentLine.endsWith("GET /H"))
-        {
-          digitalWrite(led, HIGH);
-        }
-        else if (currentLine.endsWith("GET /L")){
-          digitalWrite(led, LOW);
-        }
-      }
-    }
+    Serial.println("disconnecting from server.");
 
     client.stop();
-    Serial.println("client disconnected");
+
+    while (true);
   }
   
 }
