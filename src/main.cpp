@@ -85,6 +85,7 @@ void setup()
   pinMode(led, OUTPUT);
   
   servo.attach(SERVO_PIN);
+  dht.begin();
 
   while (wifiStatus != WL_CONNECTED){
     wifiStatus = WiFi.begin(ap_ssid, ap_password);
