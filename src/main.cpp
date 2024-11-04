@@ -6,6 +6,7 @@
 #include <Servo.h>
 #include <Adafruit_Sensor.h>
 #include <DHT.h>
+#include <ArduinoJson.h>
 
 #define SERVO_PIN 7
 #define DHT_PIN 1
@@ -22,6 +23,7 @@ char mqtt_broker_password[] = HIVEMQ_PASSWORD;
 int mqttStatus = MQTT_CONNECTION_TIMEOUT;
 char topic[] = "action/+";
 MqttClient mqttClient(wifiClient);
+JsonDocument doc;
 
 int led = LED_BUILTIN;
 Servo servo;
@@ -30,28 +32,11 @@ DHT dht(DHT_PIN, DHT11);
 unsigned long previousMillis = 0;
 unsigned int interval = 1000;
 
-void printStatus()
-{
-  // print the SSID of the network you're attached to:
-
-  Serial.print("SSID: ");
-  Serial.println(WiFi.SSID());
-  // print your WiFi shield's IP address:
-
-  IPAddress ip = WiFi.localIP();
-
-  Serial.print("IP Address: ");
-  Serial.println(ip);
-}
-
 void onActionMessage(int messageSize)
 {
-  if (messageSize == 0){
-    return;
-  }
-
   String responseTopic = mqttClient.messageTopic();
   Serial.println(responseTopic);
+  Serial.println(mqttClient.messageQoS());
   
   while (mqttClient.available())
   {
@@ -76,6 +61,13 @@ void onActionMessage(int messageSize)
   }
 }
 
+void sendMessage(String topic, String message, int qos, bool retain) 
+{
+  mqttClient.beginMessage(topic, retain, qos);
+  mqttClient.print(message);
+  mqttClient.endMessage();
+}
+
 void setup()
 {
   //Initialize serial and wait for port to open:
@@ -96,12 +88,16 @@ void setup()
       continue;
     }
 
-    Serial.println("You're connected to the Wifi!");
+    Serial.println("You're connected to the Wifi! SSID: " + String(ap_ssid));
   }
 
-  printStatus();
+  mqttClient.beginWill("health", true, 1);
+  mqttClient.print("dead");
+  mqttClient.endWill();
   
+  // mqttClient.setId("arduino9");
   mqttClient.setUsernamePassword(mqtt_broker_username, mqtt_broker_password);
+  mqttClient.setCleanSession(false);
   while (mqttStatus != MQTT_SUCCESS) {
     if (!mqttClient.connect(brokerHost, brokerPort))
     {
@@ -113,31 +109,24 @@ void setup()
     }
     
     mqttStatus = MQTT_SUCCESS;
-    Serial.println("You're connected to the MQTT broker!");
+    Serial.println("You're connected to the MQTT broker: " + String(brokerHost));
   };
 
+  sendMessage("health", "alive", 1, true);
+
   mqttClient.onMessage(onActionMessage);
-  mqttClient.subscribe(topic);
+  mqttClient.subscribe(topic, 1);
 }
 
 void publish()
 {
-  if (!isnan(dht.readHumidity()))
+  if (!isnan(dht.readHumidity()) && !isnan(dht.readTemperature()))
   {
-    Serial.print("Humidity: ");
-    Serial.println(dht.readHumidity());
-    mqttClient.beginMessage("dht/humidity");
-    mqttClient.print(dht.readHumidity());
-    mqttClient.endMessage();
-  }
-
-  if (!isnan(dht.readTemperature()))
-  {
-    Serial.print("Temperature: ");
-    Serial.println(dht.readTemperature());
-    mqttClient.beginMessage("dht/temperature");
-    mqttClient.print(dht.readTemperature());
-    mqttClient.endMessage();
+    doc["Humidity"] = dht.readHumidity();
+    doc["Temperature"] = dht.readTemperature();
+    String jsonPayload;
+    serializeJson(doc, jsonPayload);
+    sendMessage("dht", jsonPayload, 1, false);
   }
 }
 
