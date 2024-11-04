@@ -95,7 +95,6 @@ void setup()
   mqttClient.print("dead");
   mqttClient.endWill();
   
-  // mqttClient.setId("arduino9");
   mqttClient.setUsernamePassword(mqtt_broker_username, mqtt_broker_password);
   mqttClient.setCleanSession(false);
   while (mqttStatus != MQTT_SUCCESS) {
